@@ -1,0 +1,123 @@
+## DEG analysis
+#subset obj to remove hybrid and negative cells
+Idents(obj) <- "cell_type_gen"
+obj <- subset(obj, ident= c("hybrid", "negative"), invert = TRUE)
+
+
+celltypes <- c("2 Oligodendrocyte", "4 Ex neuron (CA1)", "5 In neuron", "9 Subiculum Neuron", "17 Oligodendrocyte", "21 unknown", "22 Subiculum Neuron", "31 Ex neuron (CA1)")
+
+options(future.globals.maxSize = 6 * 1024^3)  
+
+## DEG identification
+library(stringr)
+DEG.list.FDR2 <- NULL
+DEG.list.FDR<- NULL
+for (key in celltypes)  {
+Idents(obj) <- "cluster"
+subcelltype <- subset(obj, idents= key)
+Idents(subcelltype) <- "group"
+DEG.list <- FindMarkers(subcelltype, ident.1= "PNSE4", ident.2 ="PE3", verbose = FALSE, test.use = "wilcox", logfc.threshold = 0.01)
+DEG.list$gene <- row.names(DEG.list)
+#DEG.list.FDR <- subset(DEG.list, DEG.list$p_val_adj< 0.05)
+DEG.list.FDR <- DEG.list
+DEG.list.FDR$dir<- ifelse(DEG.list.FDR$avg_log2 < 0, "neg","pos")
+DEG.list.FDR$celltype<- key
+DEG.list.FDR2<- rbind(DEG.list.FDR2, DEG.list.FDR)
+}
+table(DEG.list.FDR2$celltype)
+
+write.csv(DEG.list.FDR2, "JB_PNSE4vsPE3_cutoff01.csv")
+
+DEG.list.FDR2 <- NULL
+DEG.list.FDR<- NULL
+for (key in celltypes)  {
+Idents(obj) <- "cluster"
+subcelltype <- subset(obj, idents= key)
+Idents(subcelltype) <- "group"
+DEG.list <- FindMarkers(subcelltype, ident.1= "PNSE4", ident.2 ="PE4", verbose = FALSE, test.use = "wilcox", logfc.threshold = 0.01)
+DEG.list$gene <- row.names(DEG.list)
+#DEG.list.FDR <- subset(DEG.list, DEG.list$p_val_adj< 0.05)
+DEG.list.FDR <- DEG.list
+DEG.list.FDR$dir<- ifelse(DEG.list.FDR$avg_log2 < 0, "neg","pos")
+DEG.list.FDR$celltype<- key
+DEG.list.FDR2<- rbind(DEG.list.FDR2, DEG.list.FDR)
+}
+table(DEG.list.FDR2$celltype)
+
+
+
+
+
+
+###KEGG Enrichment Analysis of the enriched genes
+#this uses clusterProfiler::enrichKEGG() function
+#load the required packages
+library(org.Mm.eg.db)
+library(clusterProfiler)
+library(tidyr)
+
+## input DEGs
+DEGlist_all <- read.csv("mic subclustering/DEGs/JB_PE4vsPE3_clusters.csv")
+DEGlist_all$celltype <- as.character(DEGlist_all$celltype)
+DEGlist_all$Geneid <- DEGlist_all$gene
+## establish background
+background_genes_allclusters <- rownames(obj[rowSums(obj[]) > 0, ])
+background_genes <- background_genes_allclusters
+## identify cluster of interest
+celltypes <-  c("2", "4", "5", "9", "17", "22")
+
+for (celltype in celltypes) {
+## map DEGs
+DEGlist <- NULL
+DEGlist <- DEGlist_all[DEGlist_all$celltype == celltype, ]
+
+entrezIDs_signif <- AnnotationDbi::select(
+  org.Mm.eg.db, 
+  keys = as.character(DEGlist$Geneid),
+  columns = c("ENTREZID", "SYMBOL"),
+  keytype = "SYMBOL")
+
+entrezIDs_signif <- entrezIDs_signif %>% distinct(SYMBOL, .keep_all = TRUE)
+entrezIDs_signif <- entrezIDs_signif[!is.na(entrezIDs_signif$ENTREZID), ]
+entrezIDs_signif <- entrezIDs_signif[!duplicated(entrezIDs_signif$SYMBOL), ]
+
+## input background genes
+entrezIDs <- AnnotationDbi::select(
+  org.Mm.eg.db, 
+  keys = as.character(background_genes),  # no $ operator
+  columns = c("ENTREZID", "SYMBOL"),
+  keytype = "SYMBOL"
+)
+
+#KEGG analysis
+  #------------------------------
+  ekeggbp <- enrichKEGG(
+    gene     = entrezIDs_signif$ENTREZID %>% subset(., !is.na(.)),
+    universe = entrezIDs$ENTREZID %>% subset(., !is.na(.)),
+    organism    = "mmu",
+    minGSSize = 10,
+    pvalueCutoff = 0.05,
+    keyType = "ncbi-geneid"
+    )
+  
+  #translating gene IDs to human readable symbols
+  ekeggbp <- setReadable(ekeggbp, OrgDb = org.Mm.eg.db, keyType="ENTREZID")
+
+  ekeggbp@result <- ekeggbp@result[!is.na(ekeggbp@result$Description) & ekeggbp@result$Description != "", ]
+  
+# Save dotplot
+pdf(paste0("mic subclustering/DEGs/PE4vsPE3/", celltype, "_ekegg-dot.pdf"), height = 8)
+print(dotplot(ekeggbp, showCategory = 20, orderBy = "GeneRatio"))
+dev.off()
+
+# Save emapplot
+x2 <- enrichplot::pairwise_termsim(ekeggbp)
+pdf(paste0("mic subclustering/DEGs/PE4vsPE3/", celltype, "_ekegg-emap.pdf"), height = 8)
+print(emapplot(x2, showCategory = 40))
+dev.off()
+
+write.csv(ekeggbp, file = paste0("mic subclustering/DEGs/PE4vsPE3/", celltype,"_ekegg.csv"))
+}
+
+
+write.csv(DEG.list.FDR2, "JB_PNSE4vsPE4_cutoff01.csv")
