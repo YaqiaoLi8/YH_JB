@@ -94,3 +94,15 @@ obj <- SCTransform(obj) %>%
     FindClusters(resolution = 0.7) %>%
     RunUMAP(dims = 1:15)
 DimPlot(obj, reduction = "umap", label=TRUE, group.by = "seurat_clusters",  raster=FALSE)
+
+
+
+## find all marker genes for all clusters
+Idents(obj) <- "Seurat_Clusters"
+MarkersRes <- FindAllMarkers(obj, 
+                             assay = "SCT", 
+                             slot = "data", 
+                             test.use = "wilcox",
+                             only.pos = TRUE,
+                             min.pct = 0.25,
+                             logfc.threshold = 0.25)
